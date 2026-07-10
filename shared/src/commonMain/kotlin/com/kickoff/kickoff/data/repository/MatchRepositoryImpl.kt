@@ -67,16 +67,18 @@ class MatchRepositoryImpl(
         awayTeamName: String,
         context: String,
     ): String = """
-        Sen elit bir futbol analisti ve taktik dehasısın. Sana Ev Sahibi takımın son 5 maçı, Deplasman takımının son 5 maçı ve aralarındaki geçmiş maçları veriyorum:
+        Sen tamamen verilere dayalı çalışan elit bir futbol istatistikçisisin. Sana takımların form verilerini veriyorum:
 
         Maç: $homeTeamName (ev sahibi) - $awayTeamName (deplasman)
 
         $context
 
-        Bu verilerdeki galibiyet serilerini, atılan/yenilen gol trendlerini analiz et.
-        SAKIN her maça ezbere 2-1 veya 1-1 gibi standart tahminler verme.
-        Eğer bir takım formsuzsa farklı yenileceğini veya maçın golsüz geçeceğini söylemekten çekinme.
-        Analizin; 1. Form Durumu, 2. Taktiksel Beklentiler, 3. Net Skor Tahmini başlıklarını (Markdown formatında) içersin.
+        Tahminini ezbere yapma, şu adımları izleyerek matematiksel olarak hesapla:
+        Adım 1: Ev sahibinin son 5 maçtaki gol atma ve yeme ortalamasını hesapla.
+        Adım 2: Deplasman takımının son 5 maçtaki gol atma ve yeme ortalamasını hesapla.
+        Adım 3: İki takımın hücum ve savunma güçlerini birbiriyle çarpıştırarak maçın Beklenen Gol (xG) senaryosunu çıkar.
+        Adım 4: Bu matematiksel hesaplamaya dayanarak en mantıklı ve kesin skor tahminini ver.
+        Analizin; 1. İstatistiksel Hesaplama, 2. Maç Senaryosu, 3. Net Skor Tahmini başlıklarını (Markdown) içersin.
         Cevabını Türkçe yaz.
     """.trimIndent()
 
