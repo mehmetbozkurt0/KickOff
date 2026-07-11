@@ -6,6 +6,9 @@ package com.kickoff.kickoff.domain.model
  */
 data class MatchUiModel(
     val fixtureId: Long,
+    val leagueId: Long,
+    // Kupa/ozel maclarda API sezon dondurmezse null kalir; sezon istatistigi adimi atlanir.
+    val season: Int?,
     val leagueName: String,
     val leagueLogoUrl: String?,
     val kickOffTime: String,

@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -17,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -80,40 +84,66 @@ fun MatchListScreen(viewModel: MatchViewModel = koinViewModel()) {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            when {
-                state.isLoading -> CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center),
+            if (state.availableLeagues.isNotEmpty()) {
+                LeagueFilterRow(
+                    leagues = state.availableLeagues,
+                    selectedLeague = state.selectedLeague,
+                    onLeagueSelected = { league ->
+                        viewModel.onIntent(MatchContract.Intent.SelectLeague(league))
+                    },
                 )
+            }
 
-                state.error != null -> ErrorContent(
-                    message = state.error.orEmpty(),
-                    onRetry = { viewModel.onIntent(MatchContract.Intent.Retry) },
-                    modifier = Modifier.align(Alignment.Center),
-                )
+            PullToRefreshBox(
+                isRefreshing = state.isRefreshing,
+                onRefresh = { viewModel.onIntent(MatchContract.Intent.RefreshMatches) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            ) {
+                when {
+                    state.isLoading -> CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
+                    )
 
-                state.matches.isEmpty() -> EmptyStateMessage(
-                    title = "Bu tarihte planlanan maç bulunamadı",
-                    subtitle = "Okları kullanarak başka bir güne göz atın.",
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                    state.error != null -> ErrorContent(
+                        message = state.error.orEmpty(),
+                        onRetry = { viewModel.onIntent(MatchContract.Intent.Retry) },
+                        modifier = Modifier.align(Alignment.Center),
+                    )
 
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    items(items = state.matches, key = { it.fixtureId }) { match ->
-                        MatchCard(
-                            match = match,
-                            onClick = {
-                                viewModel.onIntent(MatchContract.Intent.MatchClicked(match))
-                            },
-                        )
+                    // Bos durumda da asagi cekerek yenileme calissin diye kaydirilabilir sarici gerekir;
+                    // fillParentMaxSize sayesinde mesaj ekranin ortasinda kalir.
+                    state.matches.isEmpty() -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        item {
+                            Box(modifier = Modifier.fillParentMaxSize()) {
+                                EmptyStateMessage(
+                                    title = "Bu tarihte planlanan maç bulunamadı",
+                                    subtitle = "Okları kullanarak başka bir güne göz atın.",
+                                    modifier = Modifier.align(Alignment.Center),
+                                )
+                            }
+                        }
+                    }
+
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        items(items = state.filteredMatches, key = { it.fixtureId }) { match ->
+                            MatchCard(
+                                match = match,
+                                onClick = {
+                                    viewModel.onIntent(MatchContract.Intent.MatchClicked(match))
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -129,6 +159,38 @@ fun MatchListScreen(viewModel: MatchViewModel = koinViewModel()) {
             error = state.predictionError,
             onDismiss = { viewModel.onIntent(MatchContract.Intent.PredictionDismissed) },
         )
+    }
+}
+
+/** TopAppBar altinda yatay kaydirilabilir lig filtresi cipleri; ilk cip "Tümü"dür. */
+@Composable
+private fun LeagueFilterRow(
+    leagues: List<String>,
+    selectedLeague: String?,
+    onLeagueSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "__all__") {
+            FilterChip(
+                selected = selectedLeague == null,
+                onClick = { onLeagueSelected(null) },
+                label = { Text(text = "Tümü") },
+            )
+        }
+        items(items = leagues, key = { it }) { league ->
+            val isSelected = league == selectedLeague
+            FilterChip(
+                selected = isSelected,
+                // Secili cipe tekrar dokunmak filtreyi kaldirip "Tümü"ye doner.
+                onClick = { onLeagueSelected(if (isSelected) null else league) },
+                label = { Text(text = league) },
+            )
+        }
     }
 }
 

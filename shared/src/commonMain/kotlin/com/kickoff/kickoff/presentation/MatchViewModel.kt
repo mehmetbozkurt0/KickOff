@@ -41,13 +41,19 @@ class MatchViewModel(
     /** MVI'nin tek giris kapisi: UI tum kullanici etkilesimlerini Intent olarak buraya yollar. */
     fun onIntent(intent: MatchContract.Intent) {
         when (intent) {
-            MatchContract.Intent.LoadMatches,
-            MatchContract.Intent.Retry,
-            -> loadMatches()
+            MatchContract.Intent.LoadMatches -> loadMatches()
+
+            // Retry de cache'i atlar: hata sonrasi "Tekrar Dene" bayat veriye carpmamali.
+            MatchContract.Intent.Retry -> loadMatches(forceRefresh = true)
+
+            MatchContract.Intent.RefreshMatches -> loadMatches(forceRefresh = true, isPullRefresh = true)
 
             MatchContract.Intent.PreviousDay -> changeDay(offsetDays = -1)
 
             MatchContract.Intent.NextDay -> changeDay(offsetDays = 1)
+
+            is MatchContract.Intent.SelectLeague ->
+                _state.update { it.copy(selectedLeague = intent.leagueName) }
 
             is MatchContract.Intent.MatchClicked -> loadPrediction(intent.match)
 
@@ -61,17 +67,30 @@ class MatchViewModel(
         loadMatches()
     }
 
-    private fun loadMatches() {
+    private fun loadMatches(forceRefresh: Boolean = false, isPullRefresh: Boolean = false) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            // Pull-to-refresh sirasinda liste ekranda kalir, tam ekran spinner gosterilmez.
+            _state.update {
+                it.copy(isLoading = !isPullRefresh, isRefreshing = isPullRefresh, error = null)
+            }
 
-            matchRepository.getMatchesByDate(_state.value.selectedDate.toString())
+            matchRepository.getMatchesByDate(_state.value.selectedDate.toString(), forceRefresh)
                 .onSuccess { matches ->
-                    _state.update { it.copy(isLoading = false, matches = matches) }
+                    val leagues = sortLeagues(matches.map { match -> match.leagueName }.distinct())
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            matches = matches,
+                            availableLeagues = leagues,
+                            // Onceki secim yeni listede yoksa (gun degisti vb.) "Tumu"ye don.
+                            selectedLeague = it.selectedLeague?.takeIf { selected -> selected in leagues },
+                        )
+                    }
                 }
                 .onFailure { throwable ->
                     val message = throwable.message ?: "Maclar yuklenirken bir hata olustu."
-                    _state.update { it.copy(isLoading = false, error = message) }
+                    _state.update { it.copy(isLoading = false, isRefreshing = false, error = message) }
                     _effect.send(MatchContract.Effect.ShowError(message))
                 }
         }
@@ -91,6 +110,8 @@ class MatchViewModel(
                 fixtureId = match.fixtureId,
                 homeTeamId = match.homeTeam.id,
                 awayTeamId = match.awayTeam.id,
+                leagueId = match.leagueId,
+                season = match.season,
             )
                 .onSuccess { prediction ->
                     _state.update { it.copy(isPredictionLoading = false, selectedMatchPrediction = prediction) }
@@ -117,6 +138,33 @@ class MatchViewModel(
         }
     }
 
+    /**
+     * Buyuk turnuva/ligleri [LEAGUE_PRIORITY] sirasiyla one alir; listede olmayanlar
+     * kendi iclerinde alfabetik olarak sona eklenir.
+     */
+    private fun sortLeagues(leagues: List<String>): List<String> =
+        leagues.sortedWith(compareBy({ priorityIndexOf(it) }, { normalizeLeagueName(it) }))
+
+    /** Ligin oncelik listesindeki sirasi; listede yoksa hepsinden buyuk bir deger doner. */
+    private fun priorityIndexOf(leagueName: String): Int {
+        val normalized = normalizeLeagueName(leagueName)
+        val index = LEAGUE_PRIORITY.indexOfFirst { keyword -> keyword in normalized }
+        return if (index == -1) LEAGUE_PRIORITY.size else index
+    }
+
+    /**
+     * Buyuk/kucuk harf ve Turkce aksan farklarini sadelestirir; boylece
+     * "Trendyol Süper Lig" gibi sponsorlu varyantlar da "super lig" ile eslesir.
+     */
+    private fun normalizeLeagueName(name: String): String =
+        name.lowercase()
+            .replace('ü', 'u')
+            .replace('ö', 'o')
+            .replace('ı', 'i')
+            .replace('ş', 's')
+            .replace('ç', 'c')
+            .replace('ğ', 'g')
+
     /** Secili tarihi kullanici dostu etikete cevirir: Bugun/Dun/Yarin ya da "12 Eyl". */
     private fun labelFor(date: LocalDate): String {
         val today = today()
@@ -135,6 +183,21 @@ class MatchViewModel(
         private val TURKISH_MONTHS_SHORT = listOf(
             "Oca", "Şub", "Mar", "Nis", "May", "Haz",
             "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
+        )
+
+        // Cip siralamasinda one alinacak turnuva/ligler; anahtar kelimeler
+        // normalizeLeagueName ciktisiyla `contains` uzerinden eslestirilir.
+        private val LEAGUE_PRIORITY = listOf(
+            "world cup",
+            "euro championship",
+            "uefa champions league",
+            "uefa europa league",
+            "premier league",
+            "la liga",
+            "serie a",
+            "bundesliga",
+            "ligue 1",
+            "super lig",
         )
     }
 }

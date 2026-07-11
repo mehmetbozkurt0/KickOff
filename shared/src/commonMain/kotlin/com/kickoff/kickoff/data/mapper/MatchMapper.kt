@@ -3,6 +3,7 @@
 package com.kickoff.kickoff.data.mapper
 
 import com.kickoff.kickoff.data.model.FixtureItemDto
+import com.kickoff.kickoff.data.model.TeamStatisticsDto
 import com.kickoff.kickoff.domain.model.MatchUiModel
 import com.kickoff.kickoff.domain.model.TeamUiModel
 import kotlinx.datetime.TimeZone
@@ -12,6 +13,8 @@ import kotlin.time.Instant
 
 fun FixtureItemDto.toUiModel(): MatchUiModel = MatchUiModel(
     fixtureId = fixture.id,
+    leagueId = league.id,
+    season = league.season,
     leagueName = league.name,
     leagueLogoUrl = league.logo,
     kickOffTime = formatKickOffTime(fixture.date),
@@ -98,7 +101,64 @@ fun List<FixtureItemDto>.toFormSummaryText(teamId: Long): String {
 }
 
 /**
- * Ev sahibi son maclari + deplasman son maclari + H2H verisini,
+ * Bir takimin sezon geneli istatistiklerini LLM'in okuyabilecegi ozet metne cevirir:
+ * O/G/B/M, gol atma-yeme ortalamalari, clean sheet, en cok kullanilan formasyon
+ * ve gol dakika dagilimlari.
+ */
+fun TeamStatisticsDto.toSeasonSummaryText(): String {
+    val played = fixtures?.played?.total
+    if (played == null || played == 0) return "Sezon istatistigi bulunamadi."
+
+    return buildString {
+        appendLine(
+            "Sezon ozeti: $played mac | " +
+                "${fixtures.wins?.total ?: 0} galibiyet, " +
+                "${fixtures.draws?.total ?: 0} beraberlik, " +
+                "${fixtures.loses?.total ?: 0} maglubiyet"
+        )
+        form?.takeIf { it.isNotBlank() }?.let {
+            appendLine("Sezon form dizisi (W/D/L): ${it.takeLast(10)}")
+        }
+        goals?.scored?.let { scored ->
+            appendLine(
+                "Atilan gol: toplam ${scored.total?.total ?: 0} | " +
+                    "mac basi ortalama ${scored.average?.total ?: "?"} " +
+                    "(evde ${scored.average?.home ?: "?"}, deplasmanda ${scored.average?.away ?: "?"})"
+            )
+        }
+        goals?.against?.let { against ->
+            appendLine(
+                "Yenilen gol: toplam ${against.total?.total ?: 0} | " +
+                    "mac basi ortalama ${against.average?.total ?: "?"} " +
+                    "(evde ${against.average?.home ?: "?"}, deplasmanda ${against.average?.away ?: "?"})"
+            )
+        }
+        appendLine("Clean sheet (gol yemeden bitirilen mac): ${cleanSheet?.total ?: 0}")
+        appendLine("Gol atamadan bitirilen mac: ${failedToScore?.total ?: 0}")
+
+        lineups.maxByOrNull { it.played ?: 0 }?.formation?.let {
+            appendLine("En cok kullanilan formasyon: $it")
+        }
+
+        val scoredMinutes = goals?.scored?.minute.toMinuteSummary()
+        if (scoredMinutes.isNotBlank()) appendLine("Gol atma dakikalari: $scoredMinutes")
+        val concededMinutes = goals?.against?.minute.toMinuteSummary()
+        if (concededMinutes.isNotBlank()) append("Gol yeme dakikalari: $concededMinutes")
+    }.trimEnd()
+}
+
+/** Dakika dagilimini "0-15: %10, 16-30: %25" formatinda tek satira indirger. */
+private fun Map<String, com.kickoff.kickoff.data.model.StatsMinuteDto>?.toMinuteSummary(): String {
+    if (this == null) return ""
+    return entries
+        .filter { (it.value.total ?: 0) > 0 }
+        .joinToString(separator = ", ") { (range, stat) ->
+            "$range: ${stat.percentage ?: "${stat.total} gol"}"
+        }
+}
+
+/**
+ * Ev sahibi son maclari + deplasman son maclari + H2H + sezon istatistiklerini,
  * Gemini'ye gonderilecek tek bir zengin baglam metninde birlestirir.
  */
 fun buildPredictionContext(
@@ -109,12 +169,20 @@ fun buildPredictionContext(
     awayTeamId: Long,
     awayLastFixtures: List<FixtureItemDto>,
     h2hFixtures: List<FixtureItemDto>,
+    homeSeasonStats: TeamStatisticsDto? = null,
+    awaySeasonStats: TeamStatisticsDto? = null,
 ): String = buildString {
     appendLine("== EV SAHIBI: $homeTeamName — son maclari ==")
     appendLine(homeLastFixtures.toFormSummaryText(homeTeamId))
     appendLine()
     appendLine("== DEPLASMAN: $awayTeamName — son maclari ==")
     appendLine(awayLastFixtures.toFormSummaryText(awayTeamId))
+    appendLine()
+    appendLine("== EV SAHIBI: $homeTeamName — sezon istatistikleri ==")
+    appendLine(homeSeasonStats?.toSeasonSummaryText() ?: "Sezon istatistigi bulunamadi.")
+    appendLine()
+    appendLine("== DEPLASMAN: $awayTeamName — sezon istatistikleri ==")
+    appendLine(awaySeasonStats?.toSeasonSummaryText() ?: "Sezon istatistigi bulunamadi.")
     appendLine()
     appendLine("== ARALARINDAKI GECMIS KARSILASMALAR (H2H) ==")
     append(h2hFixtures.toFixtureSummaryText())

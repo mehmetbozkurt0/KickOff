@@ -31,9 +31,10 @@ class GeminiApiClient(apiKeys: ApiKeys) {
     private val httpClient = HttpClient(CIO) {
         expectSuccess = true
 
-        // Uretici yapay zeka yanitlari varsayilan 15 sn'lik CIO zaman asimini asabilir.
+        // Pro modeli reasoning yaptigi icin Flash'a gore belirgin sekilde yavastir;
+        // varsayilan 15 sn'lik CIO zaman asimi kesinlikle yetmez.
         install(HttpTimeout) {
-            requestTimeoutMillis = 60_000
+            requestTimeoutMillis = 120_000
         }
 
         install(ContentNegotiation) {
@@ -79,6 +80,6 @@ class GeminiApiClient(apiKeys: ApiKeys) {
     companion object {
         private const val BASE_URL = "https://generativelanguage.googleapis.com/"
         private const val API_KEY_HEADER = "x-goog-api-key"
-        private const val DEFAULT_MODEL = "gemini-3.5-flash"
+        private const val DEFAULT_MODEL = "gemini-3.1-pro-preview"
     }
 }
